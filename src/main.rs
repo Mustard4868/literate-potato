@@ -1,4 +1,6 @@
 use poise::serenity_prelude as serenity;
+use reqwest;
+use scraper::{Html, Selector};
 
 struct Data {} // User data, which is stored and accessible in all command invocations
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -10,31 +12,46 @@ async fn wiki(
     ctx: Context<'_>,
     #[description = "Search query"] query: Option<String>,
 ) -> Result<(), Error> {
-    let base_string = "https://wiki.warframe.com/w/";
-    
-    let formatted_text = query.map(|text| {
-        text.to_lowercase() // Convert the whole string to lowercase first
-            .split_whitespace() // Split at spaces
+    let base_url = "https://wiki.warframe.com/w/";
+    if let Some(query) = query {
+        let words: Vec<String> = query
+            .split_whitespace()
             .map(|word| {
                 let mut chars = word.chars();
                 match chars.next() {
-                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
                     None => String::new(),
+                    Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
                 }
             })
-            .collect::<Vec<String>>()
-            .join("_")
-    });
+            .collect();
+        let search_url = format!("{}{}", base_url, words.join("_"));
+        let response = reqwest::get(search_url.clone()).await?.text().await?;
+        let document = Html::parse_document(&response);
+        let description_selector = Selector::parse("meta[property=\"og:description\"]").unwrap();
+        let image_selector = Selector::parse("meta[property=\"og:image\"]").unwrap();
+        let description = document.select(&description_selector).next()
+            .and_then(|n| n.value().attr("content"))
+            .unwrap_or("No description found")
+            .to_string();
+        let image = document.select(&image_selector).next()
+            .and_then(|n| n.value().attr("content"))
+            .map(|s| s.to_string());
 
-    let response = match formatted_text {
-        Some(text) => format!("{}{}", base_string, text),
-        None => "No input provided.".to_string(),
-    };
+        let embed = serenity::CreateEmbed::default()
+            .title(words.join(" "))
+            .url(search_url)
+            .description(description)
+            .thumbnail(image.unwrap_or_default());
 
-    ctx.say(response).await?;
+        let builder = poise::CreateReply::default()
+            .embed(embed);
+
+        
+        ctx.send(builder).await?;
+    }
     Ok(())
-
 }
+
 
 #[tokio::main]
 async fn main() {
