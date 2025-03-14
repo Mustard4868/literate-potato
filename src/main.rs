@@ -24,19 +24,22 @@ async fn wiki(
                 }
             })
             .collect();
+        
         let search_url = format!("{}{}", base_url, words.join("_"));
+        
         let response = reqwest::get(search_url.clone()).await?.text().await?;
-        let document = Html::parse_document(&response);
-        let description_selector = Selector::parse("meta[property=\"og:description\"]").unwrap();
-        let image_selector = Selector::parse("meta[property=\"og:image\"]").unwrap();
-        let description = document.select(&description_selector).next()
+        
+        let description = Html::parse_document(&response).select(&Selector::parse("meta[property=\"og:description\"]").unwrap())
+            .next()
             .and_then(|n| n.value().attr("content"))
             .unwrap_or("No description found")
             .to_string();
-        let image = document.select(&image_selector).next()
+
+        let image = Html::parse_document(&response).select(&Selector::parse("meta[property=\"og:image\"]").unwrap())
+            .next()
             .and_then(|n| n.value().attr("content"))
             .map(|s| s.to_string());
-
+        
         let embed = serenity::CreateEmbed::default()
             .title(words.join(" "))
             .url(search_url)
@@ -46,8 +49,8 @@ async fn wiki(
         let builder = poise::CreateReply::default()
             .embed(embed);
 
-        
         ctx.send(builder).await?;
+
     }
     Ok(())
 }
